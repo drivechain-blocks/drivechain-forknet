@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <arith_uint256.h>
 #include <chain.h>
 #include <chainparams.h>
 #include <pow.h>
@@ -79,6 +80,29 @@ BOOST_AUTO_TEST_CASE(get_next_work_upper_limit_actual)
     // Test that increasing nbits further would not be a PermittedDifficultyTransition.
     unsigned int invalid_nbits = expected_nbits+1;
     BOOST_CHECK(!PermittedDifficultyTransition(chainParams->GetConsensus(), pindexLast.nHeight+1, pindexLast.nBits, invalid_nbits));
+}
+
+/* Test the drivechain difficulty reset when it lands off a retarget boundary */
+BOOST_AUTO_TEST_CASE(get_next_work_drivechain_reset)
+{
+    Consensus::Params consensus = CreateChainParams(*m_node.args, ChainType::MAIN)->GetConsensus();
+
+    // Pick an activation height that is not a retarget boundary.
+    consensus.DrivechainHeight = 1000;
+    BOOST_CHECK(consensus.DrivechainHeight % consensus.DifficultyAdjustmentInterval() != 0);
+
+    const unsigned int pow_limit = UintToArith256(consensus.powLimit).GetCompact();
+
+    CBlockIndex pindexLast;
+    pindexLast.nHeight = consensus.DrivechainHeight - 1;
+    pindexLast.nBits = 0x1b0404cb; // a target harder than the minimum
+
+    CBlockHeader block;
+
+    // The block at the activation height must reset to the minimum difficulty,
+    // and that transition must be permitted, otherwise the chain stalls there.
+    BOOST_CHECK_EQUAL(GetNextWorkRequired(&pindexLast, &block, consensus), pow_limit);
+    BOOST_CHECK(PermittedDifficultyTransition(consensus, pindexLast.nHeight + 1, pindexLast.nBits, pow_limit));
 }
 
 BOOST_AUTO_TEST_CASE(CheckProofOfWork_test_negative_target)
