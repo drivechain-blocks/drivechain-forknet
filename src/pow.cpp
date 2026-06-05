@@ -16,6 +16,12 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
     assert(pindexLast != nullptr);
     unsigned int nProofOfWorkLimit = UintToArith256(params.powLimit).GetCompact();
 
+    // Reset difficulty to the minimum at the drivechain fork activation height.
+    // This can land off a retarget boundary, so it is handled here to match the
+    // check in ContextualCheckBlockHeader and keep the chain from stalling.
+    if (pindexLast->nHeight + 1 == params.DrivechainHeight)
+        return nProofOfWorkLimit;
+
     // Only change once per difficulty adjustment interval
     if ((pindexLast->nHeight+1) % params.DifficultyAdjustmentInterval() != 0)
     {
@@ -78,10 +84,6 @@ unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nF
     bnNew *= nActualTimespan;
     bnNew /= params.nPowTargetTimespan;
 
-    // Drivechain fork activation difficulty reset
-    if (pindexLast->nHeight + 1 == params.DrivechainHeight)
-        bnNew = bnPowLimit;
-
     if (bnNew > bnPowLimit)
         bnNew = bnPowLimit;
 
@@ -93,6 +95,10 @@ unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nF
 bool PermittedDifficultyTransition(const Consensus::Params& params, int64_t height, uint32_t old_nbits, uint32_t new_nbits)
 {
     if (params.fPowAllowMinDifficultyBlocks) return true;
+
+    // The drivechain fork resets difficulty to the minimum at the activation
+    // height, which can be a transition that the normal rules would reject.
+    if (height == params.DrivechainHeight) return true;
 
     if (height % params.DifficultyAdjustmentInterval() == 0) {
         int64_t smallest_timespan = params.nPowTargetTimespan/4;
